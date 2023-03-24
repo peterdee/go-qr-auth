@@ -1,0 +1,6 @@
+# Directories
+tmp
+
+# Files
+.env
+launch.sh
