@@ -8,6 +8,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"qr-auth/constants"
+	"qr-auth/handler"
 )
 
 func main() {
@@ -24,7 +25,7 @@ func main() {
 		port = constants.DEFAULT_PORT
 	}
 
-	// http.HandleFunc("/", handler.HandleConnection)
+	http.HandleFunc("/", handler.HandleConnection)
 
 	log.Println(constants.APPLICATION_NAME, "is running on port", port)
 	launchError := http.ListenAndServe(":"+port, nil)

@@ -8,3 +8,8 @@ var ENV_NAMES = EnvNames{
 	ENV:  "ENV",
 	PORT: "PORT",
 }
+
+var EVENTS = Events{
+	RegisterConnection: "register-connection",
+	RegisterUser:       "register-user",
+}
