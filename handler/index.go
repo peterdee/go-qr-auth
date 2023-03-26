@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/lucsky/cuid"
@@ -46,49 +47,76 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 		// parse incoming message, exit loop if there's a problem & delete connection
 		var parsedMessage MessageStruct
 		if parsingError := connection.ReadJSON(&parsedMessage); parsingError != nil {
+			connection.Close()
 			delete(connections, connectionId)
 			break
 		}
 
+		// ping response
+		if parsedMessage.Event == constants.EVENTS.PingResponse {
+			newConnection.LastMessageReceived = time.Now().UnixMilli()
+		}
+
 		// register user: add name
 		if parsedMessage.Event == constants.EVENTS.RegisterUser {
+			newConnection.LastMessageReceived = time.Now().UnixMilli()
 			newConnection.Name = parsedMessage.Data
 		}
 
-		if parsedMessage.Event == configuration.EVENTS.TransferContacts &&
-			parsedMessage.Issuer != "" && parsedMessage.Target != "" &&
-			parsedMessage.Data != "" {
-			var target *ConnectionStruct
-			for i := range connections {
-				if connections[i].ConnectionId == parsedMessage.Target {
-					target = connections[i]
-				}
-			}
-			if target != nil {
-				target.Connection.WriteJSON(MessageStruct{
-					Data:   parsedMessage.Data,
-					Event:  configuration.EVENTS.TransferContacts,
-					Issuer: connectionId,
-					Target: target.ConnectionId,
-				})
-			}
-		}
+		// if parsedMessage.Event == configuration.EVENTS.TransferContacts &&
+		// 	parsedMessage.Issuer != "" && parsedMessage.Target != "" &&
+		// 	parsedMessage.Data != "" {
+		// 	var target *ConnectionStruct
+		// 	for i := range connections {
+		// 		if connections[i].ConnectionId == parsedMessage.Target {
+		// 			target = connections[i]
+		// 		}
+		// 	}
+		// 	if target != nil {
+		// 		target.Connection.WriteJSON(MessageStruct{
+		// 			Data:   parsedMessage.Data,
+		// 			Event:  configuration.EVENTS.TransferContacts,
+		// 			Issuer: connectionId,
+		// 			Target: target.ConnectionId,
+		// 		})
+		// 	}
+		// }
 
-		if parsedMessage.Event == configuration.EVENTS.TransferComplete &&
-			parsedMessage.Issuer != "" && parsedMessage.Target != "" {
-			var target *ConnectionStruct
-			for i := range connections {
-				if connections[i].ConnectionId == parsedMessage.Target {
-					target = connections[i]
+		// if parsedMessage.Event == configuration.EVENTS.TransferComplete &&
+		// 	parsedMessage.Issuer != "" && parsedMessage.Target != "" {
+		// 	var target *ConnectionStruct
+		// 	for i := range connections {
+		// 		if connections[i].ConnectionId == parsedMessage.Target {
+		// 			target = connections[i]
+		// 		}
+		// 	}
+		// 	if target != nil {
+		// 		target.Connection.WriteJSON(MessageStruct{
+		// 			Event:  configuration.EVENTS.TransferComplete,
+		// 			Issuer: connectionId,
+		// 			Target: target.ConnectionId,
+		// 		})
+		// 	}
+		// }
+	}
+}
+
+func PingService() {
+	ticker := time.NewTicker(time.Second * 2)
+	go func() {
+		for range ticker.C {
+			for connectionId := range connections {
+				connection := connections[connectionId]
+				frame := time.Now().UnixMilli() - constants.CONNECTION_TIMEOUT
+				if connection.LastMessageReceived < frame {
+					connection.Connection.Close()
+					delete(connections, connectionId)
+					continue
 				}
-			}
-			if target != nil {
-				target.Connection.WriteJSON(MessageStruct{
-					Event:  configuration.EVENTS.TransferComplete,
-					Issuer: connectionId,
-					Target: target.ConnectionId,
+				connection.Connection.WriteJSON(MessageStruct{
+					Event: constants.EVENTS.Ping,
 				})
 			}
 		}
-	}
+	}()
 }

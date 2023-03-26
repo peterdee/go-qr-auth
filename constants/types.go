@@ -6,6 +6,8 @@ type EnvNames struct {
 }
 
 type Events struct {
+	Ping               string
+	PingResponse       string
 	RegisterConnection string
 	RegisterUser       string
 }

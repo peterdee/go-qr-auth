@@ -26,6 +26,7 @@ func main() {
 	}
 
 	http.HandleFunc("/", handler.HandleConnection)
+	handler.PingService()
 
 	log.Println(constants.APPLICATION_NAME, "is running on port", port)
 	launchError := http.ListenAndServe(":"+port, nil)

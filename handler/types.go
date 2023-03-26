@@ -3,8 +3,9 @@ package handler
 import "github.com/gorilla/websocket"
 
 type ConnectionStruct struct {
-	Connection *websocket.Conn
-	Name       string
+	Connection          *websocket.Conn
+	LastMessageReceived int64
+	Name                string
 }
 
 type MessageStruct struct {
