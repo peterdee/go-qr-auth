@@ -11,6 +11,7 @@ import (
 	"qr-auth/constants"
 )
 
+// TODO: locking
 var connections = make(map[string]*ConnectionStruct)
 
 var upgrader = websocket.Upgrader{
@@ -37,8 +38,9 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 
 	// store connection
 	newConnection := ConnectionStruct{
-		Connection: connection,
-		Name:       "",
+		Connection:          connection,
+		LastMessageReceived: time.Now().UnixMilli(),
+		Name:                "",
 	}
 	connections[connectionId] = &newConnection
 	log.Println("Connected", connectionId, "| Total connections:", len(connections))
@@ -47,75 +49,97 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 		// parse incoming message, exit loop if there's a problem & delete connection
 		var parsedMessage MessageStruct
 		if parsingError := connection.ReadJSON(&parsedMessage); parsingError != nil {
+			connection.WriteJSON(MessageStruct{
+				Event: constants.EVENTS.ServerDisconnect,
+			})
 			connection.Close()
 			delete(connections, connectionId)
+			log.Println(
+				"Disconnected",
+				connectionId,
+				" [invalid client message] | Total connections:",
+				len(connections),
+			)
+			break
+		}
+
+		// authenticate target
+		if parsedMessage.Event == constants.EVENTS.AuthenticateTarget {
+			newConnection.LastMessageReceived = time.Now().UnixMilli()
+			target := connections[parsedMessage.Data]
+			if target == nil {
+				connection.WriteJSON(MessageStruct{
+					Event: constants.EVENTS.InvalidTarget,
+				})
+				continue
+			}
+			if newConnection.Name == "" {
+				connection.WriteJSON(MessageStruct{
+					Event: constants.EVENTS.Unauthorized,
+				})
+				continue
+			}
+			target.Connection.WriteJSON(MessageStruct{
+				Data:  newConnection.Name,
+				Event: constants.EVENTS.AuthenticateTarget,
+			})
+			continue
+		}
+
+		// client disconnects
+		if parsedMessage.Event == constants.EVENTS.ClientDisconnect {
+			connection.Close()
+			delete(connections, connectionId)
+			log.Println(
+				"Disconnected",
+				connectionId,
+				" [client request] | Total connections:",
+				len(connections),
+			)
 			break
 		}
 
 		// ping response
 		if parsedMessage.Event == constants.EVENTS.PingResponse {
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
+			continue
 		}
 
 		// register user: add name
 		if parsedMessage.Event == constants.EVENTS.RegisterUser {
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
 			newConnection.Name = parsedMessage.Data
+			continue
 		}
-
-		// if parsedMessage.Event == configuration.EVENTS.TransferContacts &&
-		// 	parsedMessage.Issuer != "" && parsedMessage.Target != "" &&
-		// 	parsedMessage.Data != "" {
-		// 	var target *ConnectionStruct
-		// 	for i := range connections {
-		// 		if connections[i].ConnectionId == parsedMessage.Target {
-		// 			target = connections[i]
-		// 		}
-		// 	}
-		// 	if target != nil {
-		// 		target.Connection.WriteJSON(MessageStruct{
-		// 			Data:   parsedMessage.Data,
-		// 			Event:  configuration.EVENTS.TransferContacts,
-		// 			Issuer: connectionId,
-		// 			Target: target.ConnectionId,
-		// 		})
-		// 	}
-		// }
-
-		// if parsedMessage.Event == configuration.EVENTS.TransferComplete &&
-		// 	parsedMessage.Issuer != "" && parsedMessage.Target != "" {
-		// 	var target *ConnectionStruct
-		// 	for i := range connections {
-		// 		if connections[i].ConnectionId == parsedMessage.Target {
-		// 			target = connections[i]
-		// 		}
-		// 	}
-		// 	if target != nil {
-		// 		target.Connection.WriteJSON(MessageStruct{
-		// 			Event:  configuration.EVENTS.TransferComplete,
-		// 			Issuer: connectionId,
-		// 			Target: target.ConnectionId,
-		// 		})
-		// 	}
-		// }
 	}
 }
 
 func PingService() {
-	ticker := time.NewTicker(time.Second * 2)
+	ticker := time.NewTicker(time.Second * 30)
 	go func() {
 		for range ticker.C {
 			for connectionId := range connections {
 				connection := connections[connectionId]
 				frame := time.Now().UnixMilli() - constants.CONNECTION_TIMEOUT
 				if connection.LastMessageReceived < frame {
+					connection.Connection.WriteJSON(MessageStruct{
+						Event: constants.EVENTS.ServerDisconnect,
+					})
 					connection.Connection.Close()
 					delete(connections, connectionId)
+					log.Println(
+						"Disconnected",
+						connectionId,
+						" [client is non-responsive] | Total connections:",
+						len(connections),
+					)
 					continue
 				}
-				connection.Connection.WriteJSON(MessageStruct{
-					Event: constants.EVENTS.Ping,
-				})
+				if time.Now().UnixMilli()-connection.LastMessageReceived > 30*1000 {
+					connection.Connection.WriteJSON(MessageStruct{
+						Event: constants.EVENTS.Ping,
+					})
+				}
 			}
 		}
 	}()

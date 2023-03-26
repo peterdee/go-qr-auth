@@ -12,8 +12,8 @@ import (
 )
 
 func main() {
-	env := os.Getenv(constants.ENV_NAMES.ENV)
-	if env == "" {
+	envType := os.Getenv(constants.ENV_NAMES.ENV_TYPE)
+	if envType != "environment" {
 		envError := godotenv.Load()
 		if envError != nil {
 			log.Fatal(constants.COULD_NOT_LOAD_ENV_FILE)
