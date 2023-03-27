@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -11,8 +12,10 @@ import (
 	"qr-auth/constants"
 )
 
-// TODO: locking
-var connections = make(map[string]*ConnectionStruct)
+var store struct {
+	sync.Mutex
+	Connections map[string]*ConnectionStruct
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(request *http.Request) bool { return true },
@@ -42,8 +45,8 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 		LastMessageReceived: time.Now().UnixMilli(),
 		Name:                "",
 	}
-	connections[connectionId] = &newConnection
-	log.Println("Connected", connectionId, "| Total connections:", len(connections))
+	store.Connections[connectionId] = &newConnection
+	log.Println("Connected", connectionId, "| Total connections:", len(store.Connections))
 
 	for {
 		// parse incoming message, exit loop if there's a problem & delete connection
@@ -53,12 +56,14 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 				Event: constants.EVENTS.ServerDisconnect,
 			})
 			connection.Close()
-			delete(connections, connectionId)
+			store.Lock()
+			delete(store.Connections, connectionId)
+			store.Unlock()
 			log.Println(
 				"Disconnected",
 				connectionId,
 				" [invalid client message] | Total connections:",
-				len(connections),
+				len(store.Connections),
 			)
 			break
 		}
@@ -66,7 +71,7 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 		// authenticate target
 		if parsedMessage.Event == constants.EVENTS.AuthenticateTarget {
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
-			target := connections[parsedMessage.Data]
+			target := store.Connections[parsedMessage.Data]
 			if target == nil {
 				connection.WriteJSON(MessageStruct{
 					Event: constants.EVENTS.InvalidTarget,
@@ -89,12 +94,14 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 		// client disconnects
 		if parsedMessage.Event == constants.EVENTS.ClientDisconnect {
 			connection.Close()
-			delete(connections, connectionId)
+			store.Lock()
+			delete(store.Connections, connectionId)
+			store.Unlock()
 			log.Println(
 				"Disconnected",
 				connectionId,
 				" [client request] | Total connections:",
-				len(connections),
+				len(store.Connections),
 			)
 			break
 		}
@@ -118,20 +125,22 @@ func PingService() {
 	ticker := time.NewTicker(time.Second * 30)
 	go func() {
 		for range ticker.C {
-			for connectionId := range connections {
-				connection := connections[connectionId]
+			for connectionId := range store.Connections {
+				connection := store.Connections[connectionId]
 				frame := time.Now().UnixMilli() - constants.CONNECTION_TIMEOUT
 				if connection.LastMessageReceived < frame {
 					connection.Connection.WriteJSON(MessageStruct{
 						Event: constants.EVENTS.ServerDisconnect,
 					})
 					connection.Connection.Close()
-					delete(connections, connectionId)
+					store.Lock()
+					delete(store.Connections, connectionId)
+					store.Unlock()
 					log.Println(
 						"Disconnected",
 						connectionId,
 						" [client is non-responsive] | Total connections:",
-						len(connections),
+						len(store.Connections),
 					)
 					continue
 				}
