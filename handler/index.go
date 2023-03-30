@@ -30,26 +30,24 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 	}
 	defer connection.Close()
 
-	// create an ID for this specific connection
 	connectionId := cuid.New()
-
-	// send generated ID for this specific connection to the client
 	connection.WriteJSON(MessageStruct{
 		Data:  connectionId,
 		Event: constants.EVENTS.RegisterConnection,
 	})
 
-	// store connection
 	newConnection := ConnectionStruct{
 		Connection:          connection,
 		LastMessageReceived: time.Now().UnixMilli(),
 		Name:                "",
 	}
+	if store.Connections == nil {
+		store.Connections = make(map[string]*ConnectionStruct)
+	}
 	store.Connections[connectionId] = &newConnection
 	log.Println("Connected", connectionId, "| Total connections:", len(store.Connections))
 
 	for {
-		// parse incoming message, exit loop if there's a problem & delete connection
 		var parsedMessage MessageStruct
 		if parsingError := connection.ReadJSON(&parsedMessage); parsingError != nil {
 			connection.WriteJSON(MessageStruct{
@@ -62,13 +60,12 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 			log.Println(
 				"Disconnected",
 				connectionId,
-				" [invalid client message] | Total connections:",
+				"[invalid client message] | Total connections:",
 				len(store.Connections),
 			)
 			break
 		}
 
-		// authenticate target
 		if parsedMessage.Event == constants.EVENTS.AuthenticateTarget {
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
 			target := store.Connections[parsedMessage.Data]
@@ -91,7 +88,6 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 			continue
 		}
 
-		// client disconnects
 		if parsedMessage.Event == constants.EVENTS.ClientDisconnect {
 			connection.Close()
 			store.Lock()
@@ -100,20 +96,20 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 			log.Println(
 				"Disconnected",
 				connectionId,
-				" [client request] | Total connections:",
+				"[client request] | Total connections:",
 				len(store.Connections),
 			)
 			break
 		}
 
-		// ping response
 		if parsedMessage.Event == constants.EVENTS.PingResponse {
+			log.Println("ping response", connectionId)
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
 			continue
 		}
 
-		// register user: add name
 		if parsedMessage.Event == constants.EVENTS.RegisterUser {
+			log.Println("register", parsedMessage.Data)
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
 			newConnection.Name = parsedMessage.Data
 			continue
@@ -122,7 +118,7 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 }
 
 func PingService() {
-	ticker := time.NewTicker(time.Second * 30)
+	ticker := time.NewTicker(time.Second * 5) // should be 30
 	go func() {
 		for range ticker.C {
 			for connectionId := range store.Connections {
@@ -139,12 +135,12 @@ func PingService() {
 					log.Println(
 						"Disconnected",
 						connectionId,
-						" [client is non-responsive] | Total connections:",
+						"[client is non-responsive] | Total connections:",
 						len(store.Connections),
 					)
 					continue
 				}
-				if time.Now().UnixMilli()-connection.LastMessageReceived > 30*1000 {
+				if time.Now().UnixMilli()-connection.LastMessageReceived > 5*1000 {
 					connection.Connection.WriteJSON(MessageStruct{
 						Event: constants.EVENTS.Ping,
 					})
