@@ -14,5 +14,6 @@ type Events struct {
 	RegisterConnection string
 	RegisterUser       string
 	ServerDisconnect   string
+	SignOut            string
 	Unauthorized       string
 }

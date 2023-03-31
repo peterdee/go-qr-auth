@@ -22,5 +22,6 @@ var EVENTS = Events{
 	RegisterConnection: "register-connection",
 	RegisterUser:       "register-user",
 	ServerDisconnect:   "server-disconnect",
+	SignOut:            "sign-out",
 	Unauthorized:       "unauthorized",
 }

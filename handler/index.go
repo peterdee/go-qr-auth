@@ -45,7 +45,12 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 		store.Connections = make(map[string]*ConnectionStruct)
 	}
 	store.Connections[connectionId] = &newConnection
-	log.Println("Connected", connectionId, "| Total connections:", len(store.Connections))
+	log.Println(
+		"Connected",
+		connectionId,
+		"| Total connections:",
+		len(store.Connections),
+	)
 
 	for {
 		var parsedMessage MessageStruct
@@ -103,22 +108,26 @@ func HandleConnection(writer http.ResponseWriter, request *http.Request) {
 		}
 
 		if parsedMessage.Event == constants.EVENTS.PingResponse {
-			log.Println("ping response", connectionId)
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
 			continue
 		}
 
 		if parsedMessage.Event == constants.EVENTS.RegisterUser {
-			log.Println("register", parsedMessage.Data)
 			newConnection.LastMessageReceived = time.Now().UnixMilli()
 			newConnection.Name = parsedMessage.Data
+			continue
+		}
+
+		if parsedMessage.Event == constants.EVENTS.SignOut {
+			newConnection.LastMessageReceived = time.Now().UnixMilli()
+			newConnection.Name = ""
 			continue
 		}
 	}
 }
 
 func PingService() {
-	ticker := time.NewTicker(time.Second * 5) // should be 30
+	ticker := time.NewTicker(time.Second * 30)
 	go func() {
 		for range ticker.C {
 			for connectionId := range store.Connections {
@@ -140,7 +149,7 @@ func PingService() {
 					)
 					continue
 				}
-				if time.Now().UnixMilli()-connection.LastMessageReceived > 5*1000 {
+				if time.Now().UnixMilli()-connection.LastMessageReceived > 30*1000 {
 					connection.Connection.WriteJSON(MessageStruct{
 						Event: constants.EVENTS.Ping,
 					})
